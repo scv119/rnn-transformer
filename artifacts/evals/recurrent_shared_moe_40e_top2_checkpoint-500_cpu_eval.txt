@@ -1,0 +1,6 @@
+=== CPU Eval Summary ===
+checkpoint: runs/recurrent_shared_moe_40e_top2_ff2048_wikitext103/checkpoint-500
+split: validation
+tokens: 13299
+loss: 5.5143
+perplexity: 248.207
