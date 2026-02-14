@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import json
 import math
 import os
@@ -89,11 +90,20 @@ def build_training_args(cfg: Dict[str, Any]) -> TrainingArguments:
 
 
 class RecurrentForCausalLM(nn.Module):
-    def __init__(self, model: RecurrentDecoderLM):
+    def __init__(self, model: RecurrentDecoderLM, param_budget_pad: int = 0):
         super().__init__()
         self.model = model
+        self.param_budget_pad = (
+            nn.Parameter(torch.zeros(param_budget_pad), requires_grad=True) if param_budget_pad > 0 else None
+        )
 
-    def forward(self, input_ids: torch.Tensor, labels: torch.Tensor | None = None, **_: Any) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        labels: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+    ) -> Dict[str, torch.Tensor]:
+        del attention_mask
         logits = self.model(input_ids)
         out: Dict[str, torch.Tensor] = {"logits": logits}
         if labels is not None:
@@ -105,6 +115,56 @@ class RecurrentForCausalLM(nn.Module):
             )
             out["loss"] = loss
         return out
+
+
+def count_parameters(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters())
+
+
+def pick_shared_moe_shape_for_target(
+    base_cfg: DecoderConfig,
+    target_params: int,
+    num_experts: int | None,
+    num_experts_min: int,
+    num_experts_max: int,
+    prefer_under_target: bool = False,
+) -> tuple[int, int, int]:
+    shared_dense_cfg = copy.deepcopy(base_cfg)
+    shared_dense_cfg.moe_num_experts = 0
+    shared_dense_cfg.moe_d_ff = None
+    shared_dense_cfg.moe_top_k = 1
+
+    shared_dense_params = count_parameters(RecurrentDecoderLM(shared_dense_cfg, shared_across_steps=True))
+    dense_mlp_params = shared_dense_cfg.d_ff * (2 * shared_dense_cfg.d_model + 1) + shared_dense_cfg.d_model
+    shared_non_mlp_params = shared_dense_params - dense_mlp_params
+    d_model = shared_dense_cfg.d_model
+
+    if num_experts is not None:
+        expert_candidates = [int(num_experts)]
+    else:
+        expert_candidates = list(range(int(num_experts_min), int(num_experts_max) + 1))
+        if not expert_candidates:
+            raise ValueError("No valid expert candidate count provided.")
+
+    best_choice: tuple[int, int, int] | None = None
+    best_under_choice: tuple[int, int, int] | None = None
+    for e in expert_candidates:
+        numerator = target_params - shared_non_mlp_params - (e * (d_model + 1)) - (e * d_model)
+        denominator = e * (2 * d_model + 1)
+        ff = max(1, int(round(numerator / denominator)))
+        total = shared_non_mlp_params + e * (ff * (2 * d_model + 1) + d_model) + e * (d_model + 1)
+        delta = total - target_params
+
+        if best_choice is None or abs(delta) < abs(best_choice[2] - target_params):
+            best_choice = (e, ff, total)
+        if total <= target_params and (best_under_choice is None or (target_params - total) < (target_params - best_under_choice[2])):
+            best_under_choice = (e, ff, total)
+
+    if prefer_under_target and best_under_choice is not None:
+        return best_under_choice
+    if best_choice is None:
+        raise RuntimeError("Unable to derive shared-MoE shape for target parameters.")
+    return best_choice
 
 
 def main() -> None:
@@ -188,11 +248,13 @@ def main() -> None:
             model.config.use_cache = False
         params = model.num_parameters()
     else:
-        shared = architecture == "recurrent_shared"
-        if architecture not in {"recurrent_indexed", "recurrent_shared"}:
+        shared = architecture in {"recurrent_shared", "recurrent_shared_moe"}
+        if architecture not in {"recurrent_indexed", "recurrent_shared", "recurrent_shared_moe"}:
             raise ValueError(f"Unsupported architecture: {architecture}")
 
-        dcfg = DecoderConfig(
+        moe_cfg = cfg.get("moe", {})
+        use_moe = architecture == "recurrent_shared_moe"
+        base_dcfg = DecoderConfig(
             vocab_size=int(cfg["model"]["vocab_size"]),
             max_seq_len=int(cfg["context_length"]),
             d_model=int(cfg["model"]["n_embd"]),
@@ -200,10 +262,45 @@ def main() -> None:
             d_ff=int(cfg["model"]["n_inner"]),
             n_layers=int(cfg["model"]["n_layer"]),
             dropout=float(cfg["model"].get("resid_pdrop", 0.0)),
+            moe_num_experts=(int(moe_cfg.get("num_experts", 0)) if use_moe else 0),
+            moe_top_k=(int(moe_cfg.get("top_k", 1)) if use_moe else 1),
+            moe_d_ff=(int(moe_cfg["d_ff"]) if use_moe and moe_cfg.get("d_ff") is not None else None),
         )
-        recurrent = RecurrentDecoderLM(dcfg, shared_across_steps=shared)
-        model = RecurrentForCausalLM(recurrent)
-        params = sum(p.numel() for p in model.parameters())
+
+        param_budget_pad = 0
+        if use_moe and bool(moe_cfg.get("match_indexed_params", False)):
+            indexed_cfg = copy.deepcopy(base_dcfg)
+            indexed_cfg.moe_num_experts = 0
+            indexed_cfg.moe_top_k = 1
+            indexed_cfg.moe_d_ff = None
+            target_params = count_parameters(RecurrentDecoderLM(indexed_cfg, shared_across_steps=False))
+
+            chosen_e, chosen_ff, approx_params = pick_shared_moe_shape_for_target(
+                base_cfg=indexed_cfg,
+                target_params=target_params,
+                num_experts=(int(moe_cfg["num_experts"]) if "num_experts" in moe_cfg else None),
+                num_experts_min=int(moe_cfg.get("num_experts_min", 8)),
+                num_experts_max=int(moe_cfg.get("num_experts_max", 64)),
+                prefer_under_target=bool(moe_cfg.get("strict_match", False)),
+            )
+            base_dcfg.moe_num_experts = chosen_e
+            base_dcfg.moe_d_ff = chosen_ff
+            delta = approx_params - target_params
+
+            if bool(moe_cfg.get("strict_match", False)) and delta < 0:
+                param_budget_pad = -delta
+                approx_params += param_budget_pad
+                delta = approx_params - target_params
+
+            print(
+                "[INFO] shared_moe budget match: "
+                f"experts={chosen_e}, expert_d_ff={chosen_ff}, top_k={base_dcfg.moe_top_k}, "
+                f"target={target_params:,}, approx={approx_params:,}, delta={delta:+,}, pad={param_budget_pad:,}"
+            )
+
+        recurrent = RecurrentDecoderLM(base_dcfg, shared_across_steps=shared)
+        model = RecurrentForCausalLM(recurrent, param_budget_pad=param_budget_pad)
+        params = count_parameters(model)
 
     print(f"Model parameters: {params:,} ({params/1e6:.2f}M)")
 

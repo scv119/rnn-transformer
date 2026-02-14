@@ -57,6 +57,45 @@ Success criteria (from plan):
 - `max_abs_diff_logits < 1e-5`
 - `grad_cosine > 0.999`
 
+## Recurrent Shared MoE (300M Budget-Matched)
+
+Run the shared recurrent MoE training with top-k routing and auto resume:
+
+```bash
+cd /home/chenshen/rnn-transformer
+source .venv/bin/activate
+./scripts/run_recurrent_shared_moe_300m.sh
+```
+
+The run enforces parameter-budget matching to recurrent-indexed 300M via:
+- `architecture: recurrent_shared_moe`
+- `moe.top_k`
+- `moe.match_indexed_params: true`
+- `moe.strict_match: true`
+
+## MoE Derisk Checks
+
+Sanity-check parameter budget and forward/backward:
+
+```bash
+cd /home/chenshen/rnn-transformer
+source .venv/bin/activate
+python scripts/check_recurrent_shared_moe_sanity.py
+```
+
+Tiny Trainer smoke (no wandb, workers=0):
+
+```bash
+cd /home/chenshen/rnn-transformer
+source .venv/bin/activate
+python train_baseline.py \
+  --config configs/recurrent_shared_moe_tiny_smoke.json \
+  --max_steps 1 \
+  --max_train_examples 2000 \
+  --max_eval_examples 200 \
+  --output_dir runs/debug_recurrent_shared_moe_smoke
+```
+
 ## Run Artifacts
 
 - Tracked in git:

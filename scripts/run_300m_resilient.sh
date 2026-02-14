@@ -4,7 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p logs
 
-LOG_FILE="logs/train_live.log"
+CONFIG_PATH="${CONFIG_PATH:-configs/baseline_300m_wikitext103.json}"
+LOG_FILE="${LOG_FILE:-logs/train_live.log}"
+RUN_NAME_DEFAULT="$(basename "$CONFIG_PATH" .json)"
 MAX_RESTARTS="${MAX_RESTARTS:-50}"
 RETRY_DELAY_SEC="${RETRY_DELAY_SEC:-20}"
 RESTART_COUNT=0
@@ -15,9 +17,9 @@ while true; do
   set +e
   WANDB_MODE="${WANDB_MODE:-offline}" \
   WANDB_PROJECT="${WANDB_PROJECT:-rnn-transformer}" \
-  WANDB_NAME="${WANDB_NAME:-baseline-300m-wikitext103}" \
+  WANDB_NAME="${WANDB_NAME:-$RUN_NAME_DEFAULT}" \
   ./.venv/bin/python -u train_baseline.py \
-    --config configs/baseline_300m_wikitext103.json \
+    --config "$CONFIG_PATH" \
     --auto_resume 2>&1 | tee -a "$LOG_FILE"
   RC=${PIPESTATUS[0]}
   set -e
