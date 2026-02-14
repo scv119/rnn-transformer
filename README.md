@@ -57,7 +57,7 @@ Success criteria (from plan):
 - `max_abs_diff_logits < 1e-5`
 - `grad_cosine > 0.999`
 
-## Recurrent Shared MoE (300M Budget-Matched)
+## Recurrent Shared MoE (Fixed 40 Experts, Top-2)
 
 Run the shared recurrent MoE training with top-k routing and auto resume:
 
@@ -67,11 +67,11 @@ source .venv/bin/activate
 ./scripts/run_recurrent_shared_moe_300m.sh
 ```
 
-The run enforces parameter-budget matching to recurrent-indexed 300M via:
+The default run uses a fixed shared-MoE shape:
 - `architecture: recurrent_shared_moe`
-- `moe.top_k`
-- `moe.match_indexed_params: true`
-- `moe.strict_match: true`
+- `moe.num_experts: 40` (`2 * n_layer` with `n_layer=20`)
+- `moe.top_k: 2`
+- `moe.d_ff: 2048` (half of dense FFN `n_inner=4096`)
 
 ### Architecture Diagram
 
@@ -109,12 +109,12 @@ cd /home/chenshen/rnn-transformer
 source .venv/bin/activate
 python scripts/plot_run_metrics.py \
   --run baseline=logs/train_live.log \
-  --run recurrent-shared-moe=logs/recurrent_shared_moe_live.log \
-  --output assets/run_metrics.png \
-  --title "Baseline vs Recurrent Shared MoE"
+  --run recurrent-shared-moe=logs/recurrent_shared_moe_40e_top2_live.log \
+  --output assets/run_metrics_latest.png \
+  --title "Baseline vs Recurrent Shared MoE (Latest)"
 ```
 
-![Run Metrics Comparison](assets/run_metrics.png)
+![Run Metrics Comparison](assets/run_metrics_latest.png)
 
 ## Run Artifacts
 
