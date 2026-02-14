@@ -73,6 +73,10 @@ The run enforces parameter-budget matching to recurrent-indexed 300M via:
 - `moe.match_indexed_params: true`
 - `moe.strict_match: true`
 
+### Architecture Diagram
+
+![Recurrent Shared MoE Architecture](assets/moe_transformer_architecture.svg)
+
 ## MoE Derisk Checks
 
 Sanity-check parameter budget and forward/backward:

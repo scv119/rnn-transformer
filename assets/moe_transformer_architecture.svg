@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820">
+  <defs>
+    <style>
+      .title { font: 700 28px sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 16px sans-serif; fill: #334155; }
+      .label { font: 600 14px sans-serif; fill: #0f172a; }
+      .small { font: 500 12px sans-serif; fill: #334155; }
+      .box { stroke: #1e293b; stroke-width: 2; rx: 12; ry: 12; }
+      .blue { fill: #dbeafe; }
+      .green { fill: #dcfce7; }
+      .amber { fill: #fef3c7; }
+      .rose { fill: #ffe4e6; }
+      .gray { fill: #f1f5f9; }
+      .panel { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 16; ry: 16; }
+      .arrow { stroke: #0f172a; stroke-width: 2.4; fill: none; marker-end: url(#arrowHead); }
+      .dash { stroke-dasharray: 8 6; }
+    </style>
+    <marker id="arrowHead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#0f172a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="820" fill="#f8fafc"/>
+  <text x="40" y="52" class="title">Recurrent Shared MoE Transformer (Decoder-Only)</text>
+  <text x="40" y="80" class="subtitle">Architecture used by `recurrent_shared_moe`: one shared decoder block applied for L recurrent depth steps.</text>
+
+  <rect x="36" y="108" width="1208" height="668" class="panel"/>
+
+  <rect x="68" y="164" width="190" height="72" class="box blue"/>
+  <text x="92" y="206" class="label">Input Token IDs</text>
+
+  <rect x="304" y="152" width="240" height="98" class="box blue"/>
+  <text x="352" y="188" class="label">Token Embedding</text>
+  <text x="330" y="214" class="small">+ Positional Embedding</text>
+
+  <rect x="586" y="128" width="618" height="558" class="box gray"/>
+  <text x="606" y="160" class="label">Shared Recurrent Decoder Block (weights reused at every depth step)</text>
+  <text x="606" y="184" class="small">for step i = 1..L: x = SharedBlock(x)</text>
+
+  <rect x="620" y="214" width="170" height="68" class="box green"/>
+  <text x="672" y="255" class="label">LayerNorm</text>
+
+  <rect x="836" y="214" width="334" height="68" class="box green"/>
+  <text x="884" y="255" class="label">Causal Multi-Head Attention</text>
+
+  <rect x="620" y="320" width="550" height="68" class="box green"/>
+  <text x="826" y="361" class="label">Residual Add</text>
+
+  <rect x="620" y="426" width="170" height="68" class="box amber"/>
+  <text x="672" y="467" class="label">LayerNorm</text>
+
+  <rect x="836" y="414" width="334" height="92" class="box amber"/>
+  <text x="920" y="447" class="label">Router Linear</text>
+  <text x="902" y="471" class="small">Top-k gating (k = 2)</text>
+  <text x="887" y="491" class="small">Dispatch token to selected experts</text>
+
+  <rect x="620" y="540" width="550" height="112" class="box rose"/>
+  <text x="640" y="572" class="label">Experts (shared pool)</text>
+  <text x="640" y="596" class="small">E experts, each: Linear(d_model→d_ff_expert) → GELU → Linear(d_ff_expert→d_model)</text>
+  <text x="640" y="620" class="small">Weighted combine with router probabilities, then Residual Add</text>
+
+  <rect x="68" y="698" width="240" height="56" class="box blue"/>
+  <text x="122" y="732" class="label">Final LayerNorm</text>
+
+  <rect x="356" y="698" width="250" height="56" class="box blue"/>
+  <text x="408" y="732" class="label">LM Head (vocab logits)</text>
+
+  <line x1="258" y1="200" x2="304" y2="200" class="arrow"/>
+  <line x1="544" y1="201" x2="586" y2="201" class="arrow"/>
+  <line x1="705" y1="282" x2="705" y2="320" class="arrow"/>
+  <line x1="790" y1="248" x2="836" y2="248" class="arrow"/>
+  <line x1="1003" y1="282" x2="1003" y2="320" class="arrow"/>
+  <line x1="895" y1="388" x2="895" y2="426" class="arrow"/>
+  <line x1="790" y1="460" x2="836" y2="460" class="arrow"/>
+  <line x1="1003" y1="506" x2="1003" y2="540" class="arrow"/>
+
+  <line x1="620" y1="596" x2="530" y2="596" class="arrow"/>
+  <line x1="530" y1="596" x2="530" y2="726" class="arrow"/>
+  <line x1="308" y1="726" x2="356" y2="726" class="arrow"/>
+
+  <path d="M1170,596 C1210,596 1210,300 1170,300" class="arrow dash"/>
+  <text x="1120" y="288" class="small">repeat L steps</text>
+
+  <line x1="620" y1="354" x2="544" y2="354" class="arrow dash"/>
+  <line x1="544" y1="354" x2="544" y2="201" class="arrow dash"/>
+  <text x="402" y="346" class="small">hidden state x carried across recurrent depth</text>
+
+  <rect x="884" y="698" width="320" height="56" class="box gray"/>
+  <text x="906" y="731" class="small">Parameter budget matched to recurrent-indexed baseline</text>
+</svg>
