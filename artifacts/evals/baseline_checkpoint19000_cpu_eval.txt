@@ -1,0 +1,7 @@
+[WARN] Missing keys: 1 (first 8: ['lm_head.weight'])
+=== CPU Eval Summary ===
+checkpoint: runs/baseline_300m_wikitext103/checkpoint-19000
+split: validation
+tokens: 13299
+loss: 2.6623
+perplexity: 14.329
