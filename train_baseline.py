@@ -90,12 +90,23 @@ def build_training_args(cfg: Dict[str, Any]) -> TrainingArguments:
 
 
 class RecurrentForCausalLM(nn.Module):
-    def __init__(self, model: RecurrentDecoderLM, param_budget_pad: int = 0):
+    def __init__(
+        self,
+        model: RecurrentDecoderLM,
+        param_budget_pad: int = 0,
+        moe_aux_loss_coef: float = 0.0,
+        moe_balance_log_interval: int = 0,
+        gradient_accumulation_steps: int = 1,
+    ):
         super().__init__()
         self.model = model
         self.param_budget_pad = (
             nn.Parameter(torch.zeros(param_budget_pad), requires_grad=True) if param_budget_pad > 0 else None
         )
+        self.moe_aux_loss_coef = float(moe_aux_loss_coef)
+        self.moe_balance_log_interval = int(moe_balance_log_interval)
+        self.gradient_accumulation_steps = max(1, int(gradient_accumulation_steps))
+        self._forward_calls = 0
 
     def forward(
         self,
@@ -109,11 +120,51 @@ class RecurrentForCausalLM(nn.Module):
         if labels is not None:
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
-            loss = nn.functional.cross_entropy(
+            ce_loss = nn.functional.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_labels.view(-1),
             )
-            out["loss"] = loss
+            aux_loss = getattr(self.model, "last_moe_aux_loss", None)
+            total_loss = ce_loss
+            if aux_loss is not None and self.moe_aux_loss_coef > 0.0:
+                total_loss = total_loss + (self.moe_aux_loss_coef * aux_loss)
+                out["moe_aux_loss"] = aux_loss.detach()
+                out["ce_loss"] = ce_loss.detach()
+
+            if self.training:
+                self._forward_calls += 1
+                should_log_balance = (
+                    aux_loss is not None
+                    and self.moe_balance_log_interval > 0
+                    and (
+                        self._forward_calls
+                        % (self.moe_balance_log_interval * self.gradient_accumulation_steps)
+                        == 0
+                    )
+                )
+                if should_log_balance:
+                    expert_load = getattr(self.model, "last_moe_expert_load", None)
+                    if expert_load is not None:
+                        load = expert_load.detach().float().cpu()
+                        min_load = float(load.min().item())
+                        max_load = float(load.max().item())
+                        entropy = float((-(load * (load + 1e-9).log()).sum() / math.log(load.numel())).item())
+                        top_vals, top_idx = torch.topk(load, k=min(4, load.numel()))
+                        top_desc = ", ".join(
+                            f"e{int(idx)}={float(val):.3f}" for idx, val in zip(top_idx.tolist(), top_vals.tolist())
+                        )
+                        print(
+                            "[MOE] "
+                            f"ce={float(ce_loss.detach().item()):.4f} "
+                            f"aux={float(aux_loss.detach().item()):.4f} "
+                            f"coef={self.moe_aux_loss_coef:.4f} "
+                            f"balance_entropy={entropy:.4f} "
+                            f"load_min={min_load:.4f} "
+                            f"load_max={max_load:.4f} "
+                            f"top_load=[{top_desc}]"
+                        )
+
+            out["loss"] = total_loss
         return out
 
 
@@ -297,9 +348,23 @@ def main() -> None:
                 f"experts={chosen_e}, expert_d_ff={chosen_ff}, top_k={base_dcfg.moe_top_k}, "
                 f"target={target_params:,}, approx={approx_params:,}, delta={delta:+,}, pad={param_budget_pad:,}"
             )
+        elif use_moe:
+            print(
+                "[INFO] shared_moe fixed shape: "
+                f"experts={base_dcfg.moe_num_experts}, expert_d_ff={base_dcfg.moe_d_ff}, "
+                f"top_k={base_dcfg.moe_top_k}, active_ffn={base_dcfg.moe_top_k * base_dcfg.moe_d_ff}, "
+                f"aux_loss_coef={float(moe_cfg.get('aux_loss_coef', 0.0))}, "
+                f"balance_log_interval={int(moe_cfg.get('balance_log_interval', int(cfg['logging_steps'])))}"
+            )
 
         recurrent = RecurrentDecoderLM(base_dcfg, shared_across_steps=shared)
-        model = RecurrentForCausalLM(recurrent, param_budget_pad=param_budget_pad)
+        model = RecurrentForCausalLM(
+            recurrent,
+            param_budget_pad=param_budget_pad,
+            moe_aux_loss_coef=float(moe_cfg.get("aux_loss_coef", 0.0)),
+            moe_balance_log_interval=int(moe_cfg.get("balance_log_interval", int(cfg["logging_steps"]))),
+            gradient_accumulation_steps=int(cfg["gradient_accumulation_steps"]),
+        )
         params = count_parameters(model)
 
     print(f"Model parameters: {params:,} ({params/1e6:.2f}M)")

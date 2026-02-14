@@ -72,6 +72,8 @@ The default run uses a fixed shared-MoE shape:
 - `moe.num_experts: 40` (`2 * n_layer` with `n_layer=20`)
 - `moe.top_k: 2`
 - `moe.d_ff: 2048` (half of dense FFN `n_inner=4096`)
+- `moe.aux_loss_coef: 0.01` (load-balance auxiliary loss)
+- `moe.balance_log_interval: 20` (prints expert usage balance to train logs)
 
 ### Architecture Diagram
 

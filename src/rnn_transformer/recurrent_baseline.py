@@ -42,14 +42,28 @@ class TopKMoE(nn.Module):
                 for _ in range(num_experts)
             ]
         )
+        self.last_aux_loss: torch.Tensor | None = None
+        self.last_expert_load: torch.Tensor | None = None
+        self.last_expert_importance: torch.Tensor | None = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         bsz, seq_len, d_model = x.shape
         flat_x = x.reshape(-1, d_model)
 
         router_logits = self.router(flat_x)
+        router_probs = torch.softmax(router_logits, dim=-1)
         topk_scores, topk_indices = torch.topk(router_logits, k=self.top_k, dim=-1)
         topk_gates = torch.softmax(topk_scores, dim=-1).to(flat_x.dtype)
+
+        expert_load = F.one_hot(topk_indices, num_classes=self.num_experts).to(flat_x.dtype)
+        expert_load = expert_load.sum(dim=(0, 1))
+        expert_load = expert_load / expert_load.sum().clamp_min(1.0)
+        expert_importance = router_probs.mean(dim=0).to(flat_x.dtype)
+
+        # Switch-style load-balance objective: lower is better, 1.0 is ideal uniform routing.
+        self.last_aux_loss = self.num_experts * torch.sum(expert_importance * expert_load)
+        self.last_expert_load = expert_load.detach()
+        self.last_expert_importance = expert_importance.detach()
 
         mixed = torch.zeros_like(flat_x)
         for expert_id, expert in enumerate(self.experts):
@@ -219,6 +233,9 @@ class RecurrentDecoderLM(nn.Module):
 
         self.ln_f = nn.LayerNorm(cfg.d_model)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
+        self.last_moe_aux_loss: torch.Tensor | None = None
+        self.last_moe_expert_load: torch.Tensor | None = None
+        self.last_moe_expert_importance: torch.Tensor | None = None
         self.apply(self._init_weights)
         self._apply_residual_scaling(cfg.n_layers)
         with torch.no_grad():
@@ -280,13 +297,34 @@ class RecurrentDecoderLM(nn.Module):
             torch.full((seq_len, seq_len), float("-inf"), device=input_ids.device), diagonal=1
         )
 
+        moe_aux_terms: list[torch.Tensor] = []
+        moe_load_terms: list[torch.Tensor] = []
+        moe_importance_terms: list[torch.Tensor] = []
+
         for i in range(self.cfg.n_layers):
             if self.shared_across_steps:
-                x = self.shared_block(x, attn_mask=attn_mask)
+                block = self.shared_block
             else:
-                x = self.step_blocks[i](x, attn_mask=attn_mask)
+                block = self.step_blocks[i]
+
+            x = block(x, attn_mask=attn_mask)
+            if isinstance(block.mlp, TopKMoE):
+                if block.mlp.last_aux_loss is not None:
+                    moe_aux_terms.append(block.mlp.last_aux_loss)
+                if block.mlp.last_expert_load is not None:
+                    moe_load_terms.append(block.mlp.last_expert_load)
+                if block.mlp.last_expert_importance is not None:
+                    moe_importance_terms.append(block.mlp.last_expert_importance)
 
         x = self.ln_f(x)
+        if moe_aux_terms:
+            self.last_moe_aux_loss = torch.stack(moe_aux_terms).mean()
+            self.last_moe_expert_load = torch.stack(moe_load_terms).mean(dim=0)
+            self.last_moe_expert_importance = torch.stack(moe_importance_terms).mean(dim=0)
+        else:
+            self.last_moe_aux_loss = None
+            self.last_moe_expert_load = None
+            self.last_moe_expert_importance = None
         return self.lm_head(x)
 
 

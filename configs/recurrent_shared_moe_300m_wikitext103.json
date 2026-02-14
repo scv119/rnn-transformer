@@ -25,17 +25,18 @@
   "fp16": false,
   "gradient_checkpointing": false,
   "dataloader_num_workers": 4,
-  "report_to": "wandb",
-  "run_name": "recurrent-shared-moe-300m-wikitext103",
+  "report_to": "none",
+  "run_name": "recurrent-shared-moe-40e-top2-ff2048-wikitext103",
   "auto_resume": true,
-  "output_dir": "runs/recurrent_shared_moe_300m_wikitext103",
+  "output_dir": "runs/recurrent_shared_moe_40e_top2_ff2048_wikitext103",
   "overwrite_output_dir": true,
   "moe": {
     "top_k": 2,
-    "num_experts_min": 16,
-    "num_experts_max": 48,
-    "match_indexed_params": true,
-    "strict_match": true
+    "num_experts": 40,
+    "d_ff": 2048,
+    "aux_loss_coef": 0.01,
+    "balance_log_interval": 20,
+    "match_indexed_params": false
   },
   "model": {
     "vocab_size": 50257,
