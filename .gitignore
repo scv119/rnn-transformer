@@ -1,0 +1,31 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Environments
+.venv/
+venv/
+
+# Training outputs and large artifacts
+runs/
+checkpoints/
+logs/
+wandb/
+outputs/
+
+# Datasets / caches
+data/
+datasets/
+.cache/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Misc
+*.log
