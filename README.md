@@ -105,10 +105,9 @@ cd /home/chenshen/rnn-transformer
 source .venv/bin/activate
 python scripts/plot_run_metrics.py \
   --run baseline=logs/train_live.log \
-  --run recurrent-indexed=logs/recurrent_indexed_live.log \
   --run recurrent-shared-moe=logs/recurrent_shared_moe_live.log \
   --output assets/run_metrics.png \
-  --title "Baseline vs Recurrent Runs"
+  --title "Baseline vs Recurrent Shared MoE"
 ```
 
 ![Run Metrics Comparison](assets/run_metrics.png)
