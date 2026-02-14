@@ -56,3 +56,32 @@ python scripts/check_recurrent_equivalence.py
 Success criteria (from plan):
 - `max_abs_diff_logits < 1e-5`
 - `grad_cosine > 0.999`
+
+## Run Artifacts
+
+- Tracked in git:
+  - `logs/train_live.log`
+  - `logs/recurrent_indexed_live.log`
+- Not tracked in git (large artifacts):
+  - `runs/` (includes checkpoints)
+  - `checkpoints/`
+  - `wandb/`
+  - `.venv/`
+  - `data/`, `datasets/`
+
+## Resume and Checkpoints
+
+- Checkpoints are written under `runs/<run_name>/checkpoint-*`
+- Resume options:
+  - `--auto_resume` (resume from latest checkpoint in `output_dir`)
+  - `--resume_from_checkpoint <path>`
+
+## Security Hygiene
+
+- Do not commit `.netrc`, SSH keys, or env files containing tokens.
+- Before push, run a quick scan:
+
+```bash
+cd /home/chenshen/rnn-transformer
+git grep -nEI "(WANDB_API_KEY|api[_-]?key\\s*[=:]|password\\s*[=:]|secret\\s*[=:]|ghp_|github_pat_|sk-)"
+```
