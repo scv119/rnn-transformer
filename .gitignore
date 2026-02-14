@@ -13,7 +13,6 @@ venv/
 # Training outputs and large artifacts
 runs/
 checkpoints/
-logs/
 wandb/
 outputs/
 
@@ -26,6 +25,3 @@ datasets/
 .DS_Store
 .vscode/
 .idea/
-
-# Misc
-*.log
