@@ -63,8 +63,11 @@ def load_from_log(
     default_eval_interval: int,
 ) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
     text = log_path.read_text(encoding="utf-8", errors="ignore").replace("\r", "\n")
-    train_points: list[tuple[int, float]] = []
-    eval_points: list[tuple[int, float]] = []
+    # Use per-step maps so restarts / duplicated log segments don't create
+    # backtracking spikes (e.g. step reset to 20 after already reaching 1500).
+    # Latest value for a step wins.
+    train_points: dict[int, float] = {}
+    eval_points: dict[int, float] = {}
     train_fallback_step = 0
     eval_fallback_step = 0
 
@@ -97,15 +100,15 @@ def load_from_log(
                 if step is None:
                     train_fallback_step += default_train_interval
                     step = train_fallback_step
-                train_points.append((step, loss))
+                train_points[step] = loss
 
             if eval_loss is not None:
                 if step is None:
                     eval_fallback_step += default_eval_interval
                     step = eval_fallback_step
-                eval_points.append((step, eval_loss))
+                eval_points[step] = eval_loss
 
-    return train_points, eval_points
+    return sorted(train_points.items()), sorted(eval_points.items())
 
 
 def load_run(
