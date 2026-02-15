@@ -235,6 +235,7 @@ class RecurrentDecoderLM(nn.Module):
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
         self.last_moe_aux_loss: torch.Tensor | None = None
         self.last_moe_expert_load: torch.Tensor | None = None
+        self.last_moe_expert_load_by_layer: torch.Tensor | None = None
         self.last_moe_expert_importance: torch.Tensor | None = None
         self.apply(self._init_weights)
         self._apply_residual_scaling(cfg.n_layers)
@@ -319,11 +320,13 @@ class RecurrentDecoderLM(nn.Module):
         x = self.ln_f(x)
         if moe_aux_terms:
             self.last_moe_aux_loss = torch.stack(moe_aux_terms).mean()
-            self.last_moe_expert_load = torch.stack(moe_load_terms).mean(dim=0)
+            self.last_moe_expert_load_by_layer = torch.stack(moe_load_terms)
+            self.last_moe_expert_load = self.last_moe_expert_load_by_layer.mean(dim=0)
             self.last_moe_expert_importance = torch.stack(moe_importance_terms).mean(dim=0)
         else:
             self.last_moe_aux_loss = None
             self.last_moe_expert_load = None
+            self.last_moe_expert_load_by_layer = None
             self.last_moe_expert_importance = None
         return self.lm_head(x)
 

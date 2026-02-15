@@ -99,6 +99,8 @@ class RecurrentForCausalLM(nn.Module):
         moe_aux_warmup_steps: int = 0,
         moe_aux_decay_steps: int = 0,
         moe_balance_log_interval: int = 0,
+        moe_depth_log_path: str | None = None,
+        moe_depth_log_interval: int = 0,
         gradient_accumulation_steps: int = 1,
         initial_global_step: int = 0,
     ):
@@ -114,6 +116,8 @@ class RecurrentForCausalLM(nn.Module):
         self.moe_aux_warmup_steps = max(0, int(moe_aux_warmup_steps))
         self.moe_aux_decay_steps = max(0, int(moe_aux_decay_steps))
         self.moe_balance_log_interval = int(moe_balance_log_interval)
+        self.moe_depth_log_path = moe_depth_log_path
+        self.moe_depth_log_interval = int(moe_depth_log_interval)
         self.gradient_accumulation_steps = max(1, int(gradient_accumulation_steps))
         self.initial_global_step = max(0, int(initial_global_step))
         self._forward_calls = 0
@@ -194,6 +198,28 @@ class RecurrentForCausalLM(nn.Module):
                             f"load_max={max_load:.4f} "
                             f"top_load=[{top_desc}]"
                         )
+
+                should_log_depth = (
+                    aux_loss is not None
+                    and self.moe_depth_log_path is not None
+                    and self.moe_depth_log_interval > 0
+                    and (
+                        self._forward_calls
+                        % (self.moe_depth_log_interval * self.gradient_accumulation_steps)
+                        == 0
+                    )
+                )
+                if should_log_depth:
+                    load_by_layer = getattr(self.model, "last_moe_expert_load_by_layer", None)
+                    if load_by_layer is not None:
+                        payload = {
+                            "opt_step": int(self._current_optimizer_step()),
+                            "aux_coef": float(aux_coef),
+                            "load_by_layer": load_by_layer.detach().float().cpu().tolist(),
+                        }
+                        os.makedirs(os.path.dirname(self.moe_depth_log_path), exist_ok=True)
+                        with open(self.moe_depth_log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(payload) + "\n")
 
             out["loss"] = total_loss
         return out
@@ -420,6 +446,8 @@ def main() -> None:
             moe_aux_warmup_steps=aux_warmup_steps,
             moe_aux_decay_steps=aux_decay_steps,
             moe_balance_log_interval=int(moe_cfg.get("balance_log_interval", int(cfg["logging_steps"]))),
+            moe_depth_log_path=moe_cfg.get("depth_heatmap_log_path"),
+            moe_depth_log_interval=int(moe_cfg.get("depth_heatmap_log_interval", moe_cfg.get("balance_log_interval", int(cfg["logging_steps"])) )) if moe_cfg.get("depth_heatmap_log_path") else 0,
             gradient_accumulation_steps=int(cfg["gradient_accumulation_steps"]),
             initial_global_step=resume_global_step,
         )

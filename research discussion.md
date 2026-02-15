@@ -247,3 +247,44 @@ Important nuance:
 - A launcher: `scripts/run_recurrent_shared_moe_40e_top2_auxsched_v2_halfparams_aux003_short.sh`
 - B launcher: `scripts/run_recurrent_shared_moe_40e_top2_auxsched_v2_midsize_short.sh`
 
+
+
+---
+
+## Ablation Outcome Snapshot: Baseline vs 3 Variants (2026-02-14 night)
+
+Compared four runs in one overlay (`assets/run_metrics_baseline_vs_3_variants.png`):
+- baseline (dense)
+- half-params + aux 0.05->0.01
+- half-params + aux 0.03->0.01
+- mid-size (~171.6M) + depth-heatmap logging
+
+### Matched-eval summary
+Baseline evals:
+- 0.14: 5.576
+- 0.2801: 4.767
+- 0.4201: 4.279
+- 0.5601: 3.961
+
+Half (137M) aux 0.05:
+- 0.14: 5.896 (gap +0.320)
+
+Half (137M) aux 0.03:
+- 0.14: 5.656 (gap +0.080)
+- 0.2801: 5.157 (gap +0.390)
+- 0.4201: 4.864 (gap +0.585)
+
+Mid-size (~171.6M) depthheat:
+- 0.14: 5.644 (gap +0.068)
+- 0.2801: 5.039 (gap +0.272)
+- 0.4201: 4.721 (gap +0.442)
+- 0.5601: 4.649 (gap +0.688)
+
+### Takeaways
+- Lighter early aux (`0.03`) clearly helps warm start vs `0.05` at 137M.
+- Mid-size improves over half-params at matched evals, but still trails dense baseline and gap widens with training.
+- Current hypothesis: reduced parameter budget can match early optimization if aux is tuned, but medium-horizon quality still needs either more capacity or stronger specialization gains.
+
+### Next step intent
+- Analyze depth-wise expert activation logs to verify specialization-by-layer and whether specialization correlates with quality retention.
+- Keep using short stage-gates before promoting any variant to long runs.

@@ -120,19 +120,21 @@ python train_baseline.py \
 
 ## Run Comparison Plot
 
-Generate a train/eval loss overlay for multiple runs:
+Generate a train/eval loss overlay for baseline and three MoE ablations:
 
 ```bash
 cd /home/chenshen/rnn-transformer
 source .venv/bin/activate
 python scripts/plot_run_metrics.py \
-  --run baseline=runs/baseline_300m_wikitext103 \
-  --run recurrent-shared-moe=runs/recurrent_shared_moe_40e_top2_ff2048_wikitext103 \
-  --output assets/run_metrics_latest.png \
-  --title "Baseline vs Recurrent Shared MoE (Latest)"
+  --run baseline=logs/train_live.log \
+  --run half_137m_aux005=logs/recurrent_shared_moe_40e_top2_auxsched_v2_halfparams_live.log \
+  --run half_137m_aux003=logs/recurrent_shared_moe_40e_top2_auxsched_v2_halfparams_aux003_short_live.log \
+  --run mid_172m_depthheat=logs/recurrent_shared_moe_40e_top2_auxsched_v2_midsize_depthheat_short_live.log \
+  --output assets/run_metrics_baseline_vs_3_variants.png \
+  --title "Baseline vs 3 MoE Variants (WikiText-103)"
 ```
 
-![Run Metrics Comparison](assets/run_metrics_latest.png)
+![Run Metrics Comparison (Baseline + 3 Variants)](assets/run_metrics_baseline_vs_3_variants.png)
 
 Latest checkpoint metrics:
 - Baseline (`runs/baseline_300m_wikitext103`): step `19000`, train loss `2.3770`, eval loss `2.9956`
