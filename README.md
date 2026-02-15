@@ -136,11 +136,13 @@ python scripts/plot_run_metrics.py \
 
 ![Run Metrics Comparison (Baseline + 3 Variants)](assets/run_metrics_baseline_vs_3_variants.png)
 
-Latest checkpoint metrics:
-- Baseline (`runs/baseline_300m_wikitext103`): step `19000`, train loss `2.3770`, eval loss `2.9956`
-- Recurrent Shared MoE (`runs/recurrent_shared_moe_40e_top2_ff2048_wikitext103`): step `2500`, train loss `3.9387`, eval loss `3.9150`
+Latest matched eval-loss comparison (lower is better):
+- Epoch `0.14`: baseline `5.576` | half-137M aux `0.05→0.01`: `5.896` | half-137M aux `0.03→0.01`: `5.656` | mid-172M depthheat: `5.644`
+- Epoch `0.2801`: baseline `4.767` | half-137M aux `0.03→0.01`: `5.157` | mid-172M depthheat: `5.039`
+- Epoch `0.4201`: baseline `4.279` | half-137M aux `0.03→0.01`: `4.864` | mid-172M depthheat: `4.721`
+- Epoch `0.5601`: baseline `3.961` | mid-172M depthheat: `4.649`
 
-Note: the two runs are currently at different training steps, so these are progress snapshots, not a same-step final comparison.
+Current takeaway: baseline is still best at each matched checkpoint; the `0.03→0.01` half-parameter schedule improves substantially over `0.05→0.01`, and the mid-size variant is the strongest reduced-size run so far.
 
 ## Run Artifacts
 
