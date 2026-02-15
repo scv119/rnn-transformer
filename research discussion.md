@@ -172,3 +172,37 @@ Launch a new MoE run with a stronger early load-balance regularization schedule,
 
 ### Comparison protocol update
 - For plots/comparisons, prefer run directories (`runs/...`) over appended live logs to avoid mixed-session artifacts.
+
+---
+
+## Aux Loss Discussion + Current Result (2026-02-15)
+
+### Why aux is combined with CE in one loss
+- We train with `total_loss = CE + lambda * aux`.
+- Reason: only the scalar loss used for backward changes parameters.
+- If aux is logged but not added, it does not regularize routing behavior.
+
+### Relation to Switch Transformer aux loss
+- Switch form: `L_aux = N * sum_i(f_i * P_i)`.
+- In our implementation:
+  - `expert_importance` corresponds to `P_i` (mean soft router probability per expert).
+  - `expert_load` corresponds to `f_i` (hard routed assignment frequency).
+  - code: `self.last_aux_loss = self.num_experts * torch.sum(expert_importance * expert_load)`.
+
+Important nuance:
+- Switch is defined for top-1 routing.
+- Our run uses top-2, so this is a top-k adaptation (very close form, not exact top-1 behavior).
+
+### How we compute the terms
+- `expert_importance`: average of `softmax(router_logits)` across tokens.
+- `expert_load`: normalized count of one-hot top-k assignments per expert.
+
+### Current empirical result
+- Matched-step quality comparison still favors dense baseline:
+  - step `1500`: baseline eval `4.279` vs MoE eval `4.357`
+  - step `2000`: baseline eval `3.961` vs MoE eval `4.105`
+  - step `2500`: baseline eval `3.786` vs MoE eval `3.915`
+- Aux/balance logs from resumed MoE run show improving balance trend:
+  - approx `aux: 2.19 -> 1.56 -> 1.31`
+  - `load_max` dropped from ~`0.41` to ~`0.14` in early logged checkpoints
+- Decision taken: run a stronger early aux schedule (`0.05 -> 0.01`, warmup `5%`, decay to `30%`) as the next tracked comparison.
