@@ -110,13 +110,19 @@ Generate a train/eval loss overlay for multiple runs:
 cd /home/chenshen/rnn-transformer
 source .venv/bin/activate
 python scripts/plot_run_metrics.py \
-  --run baseline=logs/train_live.log \
-  --run recurrent-shared-moe=logs/recurrent_shared_moe_40e_top2_live.log \
+  --run baseline=runs/baseline_300m_wikitext103 \
+  --run recurrent-shared-moe=runs/recurrent_shared_moe_40e_top2_ff2048_wikitext103 \
   --output assets/run_metrics_latest.png \
   --title "Baseline vs Recurrent Shared MoE (Latest)"
 ```
 
 ![Run Metrics Comparison](assets/run_metrics_latest.png)
+
+Latest checkpoint metrics:
+- Baseline (`runs/baseline_300m_wikitext103`): step `19000`, train loss `2.3770`, eval loss `2.9956`
+- Recurrent Shared MoE (`runs/recurrent_shared_moe_40e_top2_ff2048_wikitext103`): step `2500`, train loss `3.9387`, eval loss `3.9150`
+
+Note: the two runs are currently at different training steps, so these are progress snapshots, not a same-step final comparison.
 
 ## Run Artifacts
 
