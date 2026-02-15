@@ -288,3 +288,47 @@ Mid-size (~171.6M) depthheat:
 ### Next step intent
 - Analyze depth-wise expert activation logs to verify specialization-by-layer and whether specialization correlates with quality retention.
 - Keep using short stage-gates before promoting any variant to long runs.
+
+
+---
+
+## Decision Update: Match Active FFN Params/Layer to Baseline (2026-02-15)
+
+### Trigger
+Top-k=3 improved quality at matched step-1000 vs top-k=2, suggesting active compute was a bottleneck:
+- top-k=2 (midsize, d_ff=2048) @ epoch 0.2801: `5.039`
+- top-k=3 (midsize, d_ff=2048) @ epoch 0.2801: `4.973` (better by `0.066`)
+- dense baseline @ epoch 0.2801: `4.767`
+
+### Active-parameter analysis
+Using approximate active FFN params/layer (no bias):
+- formula: `2 * n_embd * (top_k * d_ff)`
+- baseline dense (`n_embd=1024`, `n_inner=4096`):
+  - `2 * 1024 * 4096 = 8,388,608`
+- midsize top-k=2 (`n_embd=640`, `d_ff=2048`):
+  - `2 * 640 * 4096 = 5,242,880`
+- midsize top-k=3 (`n_embd=640`, `d_ff=2048`):
+  - `2 * 640 * 6144 = 7,864,320`
+
+Conclusion: top-k=3 moved active compute closer to baseline and improved eval, so next step is to match active params/layer as closely as possible.
+
+### Decision
+Stop current top-k=3 (d_ff=2048) run and launch a new short run with matched active compute:
+- `top_k=3`
+- `d_ff=2184` (`top_k * d_ff = 6552`, near target 6554)
+- expected active FFN params/layer:
+  - `2 * 640 * 6552 = 8,386,560` (within ~0.02% of baseline)
+
+### New tracked experiment
+- run name: `recurrent-shared-moe-40e-top3-dff2184-matchactive-short`
+- config: `configs/recurrent_shared_moe_40e_top3_dff2184_matchactive_short_wikitext103.json`
+- launcher: `scripts/run_recurrent_shared_moe_40e_top3_dff2184_matchactive_short.sh`
+- output dir: `runs/recurrent_shared_moe_40e_top3_dff2184_matchactive_short_wikitext103`
+- live log: `logs/recurrent_shared_moe_40e_top3_dff2184_matchactive_short_live.log`
+- depth log: `artifacts/analysis/midsize_top3_dff2184_matchactive_short_depth_load.jsonl`
+
+### Evaluation plan
+Use same stage-gated protocol (`max_steps=2000`, eval every `500`) and compare at matched epochs against:
+1) baseline dense
+2) midsize top-k=2 d_ff=2048
+3) midsize top-k=3 d_ff=2048
