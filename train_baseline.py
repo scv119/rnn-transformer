@@ -94,19 +94,48 @@ class RecurrentForCausalLM(nn.Module):
         self,
         model: RecurrentDecoderLM,
         param_budget_pad: int = 0,
-        moe_aux_loss_coef: float = 0.0,
+        moe_aux_loss_coef_start: float = 0.0,
+        moe_aux_loss_coef_end: float | None = None,
+        moe_aux_warmup_steps: int = 0,
+        moe_aux_decay_steps: int = 0,
         moe_balance_log_interval: int = 0,
         gradient_accumulation_steps: int = 1,
+        initial_global_step: int = 0,
     ):
         super().__init__()
         self.model = model
         self.param_budget_pad = (
             nn.Parameter(torch.zeros(param_budget_pad), requires_grad=True) if param_budget_pad > 0 else None
         )
-        self.moe_aux_loss_coef = float(moe_aux_loss_coef)
+        self.moe_aux_loss_coef_start = float(moe_aux_loss_coef_start)
+        self.moe_aux_loss_coef_end = (
+            float(moe_aux_loss_coef_end) if moe_aux_loss_coef_end is not None else None
+        )
+        self.moe_aux_warmup_steps = max(0, int(moe_aux_warmup_steps))
+        self.moe_aux_decay_steps = max(0, int(moe_aux_decay_steps))
         self.moe_balance_log_interval = int(moe_balance_log_interval)
         self.gradient_accumulation_steps = max(1, int(gradient_accumulation_steps))
+        self.initial_global_step = max(0, int(initial_global_step))
         self._forward_calls = 0
+
+    def _current_optimizer_step(self) -> int:
+        return self.initial_global_step + (self._forward_calls // self.gradient_accumulation_steps)
+
+    def _current_aux_coef(self) -> float:
+        if self.moe_aux_loss_coef_end is None or self.moe_aux_decay_steps <= 0:
+            return self.moe_aux_loss_coef_start
+
+        step = self._current_optimizer_step()
+        if step <= self.moe_aux_warmup_steps:
+            return self.moe_aux_loss_coef_start
+
+        progress = min(
+            1.0,
+            float(step - self.moe_aux_warmup_steps) / float(self.moe_aux_decay_steps),
+        )
+        return self.moe_aux_loss_coef_start + (
+            (self.moe_aux_loss_coef_end - self.moe_aux_loss_coef_start) * progress
+        )
 
     def forward(
         self,
@@ -125,9 +154,10 @@ class RecurrentForCausalLM(nn.Module):
                 shift_labels.view(-1),
             )
             aux_loss = getattr(self.model, "last_moe_aux_loss", None)
+            aux_coef = self._current_aux_coef()
             total_loss = ce_loss
-            if aux_loss is not None and self.moe_aux_loss_coef > 0.0:
-                total_loss = total_loss + (self.moe_aux_loss_coef * aux_loss)
+            if aux_loss is not None and aux_coef > 0.0:
+                total_loss = total_loss + (aux_coef * aux_loss)
                 out["moe_aux_loss"] = aux_loss.detach()
                 out["ce_loss"] = ce_loss.detach()
 
@@ -157,7 +187,8 @@ class RecurrentForCausalLM(nn.Module):
                             "[MOE] "
                             f"ce={float(ce_loss.detach().item()):.4f} "
                             f"aux={float(aux_loss.detach().item()):.4f} "
-                            f"coef={self.moe_aux_loss_coef:.4f} "
+                            f"coef={aux_coef:.4f} "
+                            f"opt_step={self._current_optimizer_step()} "
                             f"balance_entropy={entropy:.4f} "
                             f"load_min={min_load:.4f} "
                             f"load_max={max_load:.4f} "
@@ -234,6 +265,17 @@ def main() -> None:
     if resume_from_checkpoint is None and auto_resume and os.path.isdir(cfg["output_dir"]):
         resume_from_checkpoint = get_last_checkpoint(cfg["output_dir"])
 
+    resume_global_step = 0
+    if resume_from_checkpoint is not None:
+        trainer_state_path = os.path.join(resume_from_checkpoint, "trainer_state.json")
+        if os.path.isfile(trainer_state_path):
+            try:
+                with open(trainer_state_path, "r", encoding="utf-8") as f:
+                    trainer_state = json.load(f)
+                resume_global_step = int(trainer_state.get("global_step", 0))
+            except Exception:
+                resume_global_step = 0
+
     if bool(cfg.get("overwrite_output_dir", False)) and os.path.isdir(cfg["output_dir"]) and resume_from_checkpoint is None:
         shutil.rmtree(cfg["output_dir"])
     os.makedirs(cfg["output_dir"], exist_ok=True)
@@ -305,6 +347,15 @@ def main() -> None:
 
         moe_cfg = cfg.get("moe", {})
         use_moe = architecture == "recurrent_shared_moe"
+        aux_coef_start = float(moe_cfg.get("aux_loss_coef_start", moe_cfg.get("aux_loss_coef", 0.0)))
+        aux_coef_end_raw = moe_cfg.get("aux_loss_coef_end")
+        aux_coef_end = float(aux_coef_end_raw) if aux_coef_end_raw is not None else None
+        aux_warmup_steps = max(0, int(round(int(cfg["max_steps"]) * float(moe_cfg.get("aux_warmup_frac", 0.0)))))
+        aux_decay_end_steps = max(
+            aux_warmup_steps,
+            int(round(int(cfg["max_steps"]) * float(moe_cfg.get("aux_decay_end_frac", 0.0)))),
+        )
+        aux_decay_steps = max(0, aux_decay_end_steps - aux_warmup_steps)
         base_dcfg = DecoderConfig(
             vocab_size=int(cfg["model"]["vocab_size"]),
             max_seq_len=int(cfg["context_length"]),
@@ -353,7 +404,10 @@ def main() -> None:
                 "[INFO] shared_moe fixed shape: "
                 f"experts={base_dcfg.moe_num_experts}, expert_d_ff={base_dcfg.moe_d_ff}, "
                 f"top_k={base_dcfg.moe_top_k}, active_ffn={base_dcfg.moe_top_k * base_dcfg.moe_d_ff}, "
-                f"aux_loss_coef={float(moe_cfg.get('aux_loss_coef', 0.0))}, "
+                f"aux_loss_coef_start={aux_coef_start}, "
+                f"aux_loss_coef_end={aux_coef_end if aux_coef_end is not None else aux_coef_start}, "
+                f"aux_warmup_steps={aux_warmup_steps}, "
+                f"aux_decay_steps={aux_decay_steps}, "
                 f"balance_log_interval={int(moe_cfg.get('balance_log_interval', int(cfg['logging_steps'])))}"
             )
 
@@ -361,9 +415,13 @@ def main() -> None:
         model = RecurrentForCausalLM(
             recurrent,
             param_budget_pad=param_budget_pad,
-            moe_aux_loss_coef=float(moe_cfg.get("aux_loss_coef", 0.0)),
+            moe_aux_loss_coef_start=aux_coef_start,
+            moe_aux_loss_coef_end=aux_coef_end,
+            moe_aux_warmup_steps=aux_warmup_steps,
+            moe_aux_decay_steps=aux_decay_steps,
             moe_balance_log_interval=int(moe_cfg.get("balance_log_interval", int(cfg["logging_steps"]))),
             gradient_accumulation_steps=int(cfg["gradient_accumulation_steps"]),
+            initial_global_step=resume_global_step,
         )
         params = count_parameters(model)
 

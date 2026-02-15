@@ -105,3 +105,70 @@ Phase 3 (long run):
 2. Prepare 1k-step ablation configs for `aux_loss_coef` sweep.
 3. Add simple stage-gate script/criteria for automatic stop/promote decisions.
 4. Keep plotting with deduped-step parser (already fixed).
+
+---
+
+## New Discussion: Smaller Model While Keeping Per-Token Activation Similar
+Question discussed: whether to try a much smaller model (e.g., half parameters or less) while keeping per-token activation budget roughly the same.
+
+Recommendation: **Yes, this is a strong next step** after we secure enough checkpoints from the current control run.
+
+### Why this experiment is high-value
+- Tests whether gains come from conditional-compute efficiency vs just larger total capacity.
+- If quality is retained with much smaller total params, it strengthens both practical and research claims.
+
+### Expected gains if successful
+1. Lower memory footprint (model + optimizer states + checkpoints).
+2. Cheaper/faster experimentation cycles (more sweeps under same budget).
+3. Better serving economics potential (lower cost at similar quality).
+4. Stronger paper narrative: "similar quality at much lower total parameters with matched active compute."
+
+### What counts as a "good" result
+At matched step/token budget versus control:
+- **Excellent:** <3% quality drop with ~50% fewer params.
+- **Good:** 3–7% drop with ~50% fewer params.
+- **Weak:** >10% drop unless major latency/memory gains compensate.
+
+### Suggested implementation notes
+- Keep `top_k` fixed (e.g., 2) for clean comparison.
+- Reduce total experts and/or expert width to hit ~0.5x params first.
+- Keep training recipe fixed (LR schedule, data slice, eval cadence).
+- Run stage-gated (1k -> 5k -> long) using same stop/promote policy above.
+
+---
+
+## Decision Update: Aux-Schedule Run (2026-02-15)
+
+### Observation that triggered the decision
+At matched steps, baseline still outperforms current MoE control:
+- step `1500`: baseline eval `4.279` vs MoE eval `4.357`
+- step `2000`: baseline eval `3.961` vs MoE eval `4.105`
+- step `2500`: baseline eval `3.786` vs MoE eval `3.915`
+
+Interpretation: the gap is not only because MoE has trained fewer total steps; optimization/routing regularization likely still needs tuning.
+
+### Decision
+Launch a new MoE run with a stronger early load-balance regularization schedule, then taper:
+- aux coefficient schedule: `0.05 -> 0.01`
+- warmup hold: first `5%` of steps
+- decay-to-end by `30%` of steps
+- keep architecture fixed for comparability (`num_experts=40`, `top_k=2`, `d_ff=2048`)
+
+### New tracked experiment
+- run name: `recurrent-shared-moe-40e-top2-auxsched-wikitext103`
+- config: `configs/recurrent_shared_moe_40e_top2_auxsched_wikitext103.json`
+- script: `scripts/run_recurrent_shared_moe_40e_top2_auxsched_300m.sh`
+- output dir: `runs/recurrent_shared_moe_40e_top2_auxsched_wikitext103`
+- live log: `logs/recurrent_shared_moe_40e_top2_auxsched_live.log`
+
+### Implementation notes recorded
+- training code now supports schedule fields:
+  - `aux_loss_coef_start`
+  - `aux_loss_coef_end`
+  - `aux_warmup_frac`
+  - `aux_decay_end_frac`
+- schedule is resume-aware via checkpoint `global_step`.
+- `[MOE]` logs now report current `coef` and `opt_step` with balance stats.
+
+### Comparison protocol update
+- For plots/comparisons, prefer run directories (`runs/...`) over appended live logs to avoid mixed-session artifacts.

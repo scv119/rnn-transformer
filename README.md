@@ -75,6 +75,22 @@ The default run uses a fixed shared-MoE shape:
 - `moe.aux_loss_coef: 0.01` (load-balance auxiliary loss)
 - `moe.balance_log_interval: 20` (prints expert usage balance to train logs)
 
+Aux-schedule variant (new tracked run):
+
+```bash
+cd /home/chenshen/rnn-transformer
+source .venv/bin/activate
+./scripts/run_recurrent_shared_moe_40e_top2_auxsched_300m.sh
+```
+
+This run uses:
+- `moe.aux_loss_coef_start: 0.05`
+- `moe.aux_loss_coef_end: 0.01`
+- `moe.aux_warmup_frac: 0.05`
+- `moe.aux_decay_end_frac: 0.30`
+- `output_dir: runs/recurrent_shared_moe_40e_top2_auxsched_wikitext103`
+- `log: logs/recurrent_shared_moe_40e_top2_auxsched_live.log`
+
 ### Architecture Diagram
 
 ![Recurrent Shared MoE Architecture](assets/moe_transformer_architecture.svg)
