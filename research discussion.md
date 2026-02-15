@@ -206,3 +206,44 @@ Important nuance:
   - approx `aux: 2.19 -> 1.56 -> 1.31`
   - `load_max` dropped from ~`0.41` to ~`0.14` in early logged checkpoints
 - Decision taken: run a stronger early aux schedule (`0.05 -> 0.01`, warmup `5%`, decay to `30%`) as the next tracked comparison.
+
+---
+
+## Discovery Update: Half-Param + Aux Schedule v2 (2026-02-14)
+
+### What we tried
+1. **Half-parameter model, same active MoE compute**
+   - shape: `n_embd=512, n_layer=12, n_head=8, n_inner=2048`
+   - MoE kept fixed: `num_experts=40`, `top_k=2`, `d_ff=2048`
+   - total params: ~`137.05M`
+2. **Aux schedule variants**
+   - v1: `aux 0.05 -> 0.01`
+   - v2 (lighter early regularization): `aux 0.03 -> 0.01`
+
+### Key findings so far
+- **Half-param + aux 0.05** underperformed baseline at first eval:
+  - epoch `0.14`: baseline `5.576` vs run `5.896` (**+0.320**, worse)
+- **Half-param + aux 0.03** materially improved early behavior:
+  - epoch `0.14`: baseline `5.576` vs run `5.656` (**+0.080**, still worse but much closer)
+- Early train-loss trajectories for `aux=0.03` are now near baseline and no longer strongly lagging.
+
+### Interpretation
+- The earlier half-param failure was likely not only from reduced capacity; it was also from **too-strong early aux regularization**.
+- Lowering the aux start coefficient improved optimization enough to narrow most of the initial gap.
+- Current status: **promising but not yet winning**; needs next eval checkpoints to confirm trend.
+
+### Stage-gated plan (active)
+- Use short screens (`max_steps=2000`, eval every `500`) before long runs.
+- **A (running):** half-param + `aux_start=0.03`.
+- **B (prepared):** mid-size model (~between half and full) + `aux_start=0.05`.
+- Promotion criteria to longer run:
+  1. Eval gap vs baseline <= ~`0.10` at first eval and non-widening,
+  2. Stable training (no persistent OOM/restart loops),
+  3. Healthy routing balance stats without collapse.
+
+### Repro artifacts for this decision
+- A config: `configs/recurrent_shared_moe_40e_top2_auxsched_v2_halfparams_aux003_short_wikitext103.json`
+- B config: `configs/recurrent_shared_moe_40e_top2_auxsched_v2_midsize_short_wikitext103.json`
+- A launcher: `scripts/run_recurrent_shared_moe_40e_top2_auxsched_v2_halfparams_aux003_short.sh`
+- B launcher: `scripts/run_recurrent_shared_moe_40e_top2_auxsched_v2_midsize_short.sh`
+
