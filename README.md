@@ -120,29 +120,29 @@ python train_baseline.py \
 
 ## Run Comparison Plot
 
-Generate a train/eval loss overlay for baseline and three MoE ablations:
+Generate a train/eval loss overlay for baseline and key MoE ablations (including top-k=4):
 
 ```bash
 cd /home/chenshen/rnn-transformer
 source .venv/bin/activate
 python scripts/plot_run_metrics.py \
   --run baseline=logs/train_live.log \
-  --run half_137m_aux005=logs/recurrent_shared_moe_40e_top2_auxsched_v2_halfparams_live.log \
   --run half_137m_aux003=logs/recurrent_shared_moe_40e_top2_auxsched_v2_halfparams_aux003_short_live.log \
-  --run mid_172m_depthheat=logs/recurrent_shared_moe_40e_top2_auxsched_v2_midsize_depthheat_short_live.log \
-  --output assets/run_metrics_baseline_vs_3_variants.png \
-  --title "Baseline vs 3 MoE Variants (WikiText-103)"
+  --run mid_172m_top2=logs/recurrent_shared_moe_40e_top2_auxsched_v2_midsize_depthheat_short_live.log \
+  --run mid_172m_top4=logs/recurrent_shared_moe_40e_top4_auxsched_v2_midsize_depthheat_short_live.log \
+  --output assets/run_metrics_baseline_vs_topk4.png \
+  --title "Baseline vs MoE Variants (Top-2/Top-4)"
 ```
 
-![Run Metrics Comparison (Baseline + 3 Variants)](assets/run_metrics_baseline_vs_3_variants.png)
+![Run Metrics Comparison (Baseline + Top-2/Top-4 Variants)](assets/run_metrics_baseline_vs_topk4.png)
 
 Latest matched eval-loss comparison (lower is better):
-- Epoch `0.14`: baseline `5.576` | half-137M aux `0.05→0.01`: `5.896` | half-137M aux `0.03→0.01`: `5.656` | mid-172M depthheat: `5.644`
-- Epoch `0.2801`: baseline `4.767` | half-137M aux `0.03→0.01`: `5.157` | mid-172M depthheat: `5.039`
-- Epoch `0.4201`: baseline `4.279` | half-137M aux `0.03→0.01`: `4.864` | mid-172M depthheat: `4.721`
-- Epoch `0.5601`: baseline `3.961` | mid-172M depthheat: `4.649`
+- Epoch `0.14`: baseline `5.576` | mid-172M top-k=2 `5.644` | mid-172M top-k=4 `5.602`
+- Epoch `0.2801`: baseline `4.767` | mid-172M top-k=2 `5.039` | mid-172M top-k=4 `4.981`
+- Epoch `0.4201`: baseline `4.279` | mid-172M top-k=2 `4.721` | mid-172M top-k=4 `4.669`
+- Epoch `0.5601`: baseline `3.961` | mid-172M top-k=2 `4.649` | mid-172M top-k=4 `4.596`
 
-Current takeaway: baseline is still best at each matched checkpoint; the `0.03→0.01` half-parameter schedule improves substantially over `0.05→0.01`, and the mid-size variant is the strongest reduced-size run so far.
+Current takeaway: increasing routing from top-k=2 to top-k=4 improves the midsize variant consistently at matched checkpoints, but baseline still remains best and the baseline gap still widens over training.
 
 ## Run Artifacts
 
